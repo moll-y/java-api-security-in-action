@@ -2,7 +2,9 @@ package com.manning.apisecurityinaction;
 
 import static spark.Spark.*;
 
+import com.google.common.util.concurrent.RateLimiter;
 import com.manning.apisecurityinaction.controller.SpaceController;
+import com.manning.apisecurityinaction.controller.UserController;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import org.dalesbred.Database;
@@ -16,6 +18,9 @@ import spark.Response;
 /** Hello world! */
 public class App {
   public static void main(String[] args) throws Exception {
+    // Enable HTTPS support.
+    secure("localhost.p12", "changeit", null, null);
+
     var datasource = JdbcConnectionPool.create("jdbc:h2:mem:natter", "natter", "password");
     var database = Database.forDataSource(datasource);
     createTables(database);
@@ -26,11 +31,26 @@ public class App {
     var spaceController = new SpaceController(database);
     post("/spaces", spaceController::create);
 
+    var userController = new UserController(database);
+    post("/users", userController::register);
+    before(userController::authenticate);
+
     before(
         (request, response) -> {
           if (request.requestMethod().equals("POST")
               && !"application/json".equals(request.contentType())) {
-            halt(415, new JSONObject().put("error", "Only application/json supported").toString());
+            halt(415, new JSONObject().put("error", "only application/json supported").toString());
+          }
+        });
+
+    var rateLimiter = RateLimiter.create(2.0d);
+    before(
+        (request, response) -> {
+          if (!rateLimiter.tryAcquire()) {
+            // Indicate when the client should try again.
+            response.header("Retry-After", "2");
+            // Too Many Requests status.
+            halt(429);
           }
         });
 
@@ -67,6 +87,9 @@ public class App {
           // dangerous content from being executed.
           response.header(
               "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; sandbox");
+
+          // Instructs the browser to always use the HTTPS version in future.
+          // response.header("Strict-Transport-Security", "max-age=31536000");
 
           response.header("Server", "");
         });
