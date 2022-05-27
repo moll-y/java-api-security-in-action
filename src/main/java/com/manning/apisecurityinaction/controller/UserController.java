@@ -1,10 +1,13 @@
 package com.manning.apisecurityinaction.controller;
 
+import static spark.Spark.*;
+
 import com.lambdaworks.crypto.SCryptUtil;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import org.dalesbred.Database;
 import org.json.JSONObject;
+import spark.Filter;
 import spark.Request;
 import spark.Response;
 
@@ -74,6 +77,44 @@ public class UserController {
 
     if (hash.isPresent() && SCryptUtil.check(password, hash.get())) {
       request.attribute("subject", username);
+    }
+  }
+
+  public Filter requirePermission(String method, String permission) {
+    return (request, response) -> {
+      // Ignore requests that don't match the request method.
+      if (!method.equalsIgnoreCase(request.requestMethod())) {
+        return;
+      }
+
+      // Check if the user is authenticated.
+      requireAuthentication(request, response);
+      var spaceId = Long.parseLong(request.params(":spaceId"));
+      var username = (String) request.attribute("subject").toString();
+
+      // Look up permissions for the current user in the given space,
+      // defaulting to no permissions.
+      var perms =
+          database
+              .findOptional(
+                  String.class,
+                  "SELECT perms FROM permissions WHERE space_id = ? AND user_id = ?",
+                  spaceId,
+                  username)
+              .orElse("");
+
+      // If the user doesn't have permission, then halt with a 403 Forbidden
+      // status.
+      if (!perms.contains(permission)) {
+        halt(403);
+      }
+    };
+  }
+
+  public void requireAuthentication(Request request, Response response) {
+    if (request.attribute("subject") == null) {
+      response.header("WWW-Authenticate", "Basic realm=\"/\", charset=\"UTF-8\"");
+      halt(401);
     }
   }
 }

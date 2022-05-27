@@ -3,6 +3,7 @@ package com.manning.apisecurityinaction;
 import static spark.Spark.*;
 
 import com.google.common.util.concurrent.RateLimiter;
+import com.manning.apisecurityinaction.controller.AuditController;
 import com.manning.apisecurityinaction.controller.SpaceController;
 import com.manning.apisecurityinaction.controller.UserController;
 import java.nio.file.Files;
@@ -29,20 +30,10 @@ public class App {
     database = Database.forDataSource(datasource);
 
     var spaceController = new SpaceController(database);
-    post("/spaces", spaceController::create);
-
     var userController = new UserController(database);
-    post("/users", userController::register);
-    before(userController::authenticate);
+    var auditController = new AuditController(database);
 
-    before(
-        (request, response) -> {
-          if (request.requestMethod().equals("POST")
-              && !"application/json".equals(request.contentType())) {
-            halt(415, new JSONObject().put("error", "only application/json supported").toString());
-          }
-        });
-
+    // Rate-Limiting
     var rateLimiter = RateLimiter.create(2.0d);
     before(
         (request, response) -> {
@@ -54,9 +45,12 @@ public class App {
           }
         });
 
-    after(
+    before(
         (request, response) -> {
-          response.type("application/json");
+          if (request.requestMethod().equals("POST")
+              && !"application/json".equals(request.contentType())) {
+            halt(415, new JSONObject().put("error", "only application/json supported").toString());
+          }
         });
 
     afterAfter(
@@ -93,6 +87,31 @@ public class App {
 
           response.header("Server", "");
         });
+
+    // Authentication.
+    before(userController::authenticate);
+    // Audit log.
+    before(auditController::auditRequestStart);
+    afterAfter(auditController::auditRequestEnd);
+    // Access Control
+    before("/spaces", userController::requireAuthentication);
+    post("/spaces", spaceController::create);
+
+    // before("/spaces/:spaceId/messages", userController.requirePermission("POST", "w"));
+    // post("/spaces/:spaceId/messages", spaceController::postMessage);
+    //
+    // before("/spaces/:spaceId/messages/*", userController.requirePermission("GET", "r"));
+    // get("/spaces/:spaceId/messages/:msgId", spaceController::readMessage);
+    //
+    // before("/spaces/:spaceId/messages", userController.requirePermission("GET", "r"));
+    // get("/spaces/:spaceId/messages", spaceController::findMessages);
+    //
+    // before("/spaces/:spaceId/messages/*", userController.requirePermission("DELETE", "d"));
+    // delete("/spaces/:spaceId/messages/:msgId", spaceController::deleteMessagea)
+
+    post("/users", userController::register);
+    // Insecured on purpose.
+    get("/logs", auditController::readAuditLog);
 
     internalServerError(new JSONObject().put("error", "internal server error").toString());
     notFound(new JSONObject().put("error", "not found").toString());
