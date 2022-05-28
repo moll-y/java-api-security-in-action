@@ -86,7 +86,6 @@ public class UserController {
       if (!method.equalsIgnoreCase(request.requestMethod())) {
         return;
       }
-
       // Check if the user is authenticated.
       requireAuthentication(request, response);
       var spaceId = Long.parseLong(request.params(":spaceId"));

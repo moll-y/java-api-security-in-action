@@ -15,10 +15,13 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import spark.Request;
 import spark.Response;
+import spark.Spark;
 
 /** Hello world! */
 public class App {
   public static void main(String[] args) throws Exception {
+    Spark.staticFiles.location("/public");
+
     // Enable HTTPS support.
     secure("localhost.p12", "changeit", null, null);
 
@@ -96,6 +99,9 @@ public class App {
     // Access Control
     before("/spaces", userController::requireAuthentication);
     post("/spaces", spaceController::create);
+
+    before("/spaces/:spaceId/members", userController.requirePermission("POST", "rwd"));
+    post("/spaces/:spaceId/members", spaceController::addMember);
 
     // before("/spaces/:spaceId/messages", userController.requirePermission("POST", "w"));
     // post("/spaces/:spaceId/messages", spaceController::postMessage);
