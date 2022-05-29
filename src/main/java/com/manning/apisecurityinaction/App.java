@@ -5,7 +5,9 @@ import static spark.Spark.*;
 import com.google.common.util.concurrent.RateLimiter;
 import com.manning.apisecurityinaction.controller.AuditController;
 import com.manning.apisecurityinaction.controller.SpaceController;
+import com.manning.apisecurityinaction.controller.TokenController;
 import com.manning.apisecurityinaction.controller.UserController;
+import com.manning.apisecurityinaction.token.CookieTokenStore;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import org.dalesbred.Database;
@@ -35,6 +37,9 @@ public class App {
     var spaceController = new SpaceController(database);
     var userController = new UserController(database);
     var auditController = new AuditController(database);
+
+    var tokenStore = new CookieTokenStore();
+    var tokenController = new TokenController(tokenStore);
 
     // Rate-Limiting
     var rateLimiter = RateLimiter.create(2.0d);
@@ -93,10 +98,17 @@ public class App {
 
     // Authentication.
     before(userController::authenticate);
+    before(tokenController::validateToken);
     // Audit log.
     before(auditController::auditRequestStart);
     afterAfter(auditController::auditRequestEnd);
-    // Access Control
+
+    // Reject unauthenticated requests before the login endpoint can be
+    // accessed.
+    before("/sessions", userController::requireAuthentication);
+    post("/sessions", tokenController::login);
+    delete("/sessions", tokenController::logout);
+
     before("/spaces", userController::requireAuthentication);
     post("/spaces", spaceController::create);
 
